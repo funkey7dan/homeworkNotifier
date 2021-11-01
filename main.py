@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from login import U_NAME
 import time
 from datetime import datetime
 from selenium import webdriver
@@ -32,7 +33,7 @@ def selenium_login(driver):
     search_box1 = driver.find_element_by_id("login_username")
     search_box2 = driver.find_element_by_id("login_password")
     submit_button = driver.find_element_by_xpath("//input[@type='submit' and @value='התחברות']")
-    user_name = "315901173"  #ID goes here
+    user_name = U_NAME  #ID goes here
     search_box1.send_keys(user_name)
     search_box2.send_keys(keyring.get_password("moodle",user_name))  #Get the password from the keyring
     submit_button.click()  #log in
