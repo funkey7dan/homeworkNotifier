@@ -13,6 +13,10 @@ import atexit
 import sys
 import difflib
 
+#
+# A script that scraps the moodle page for changes, sends a telegram message.
+#
+
 filterwarnings("ignore",category = DeprecationWarning)
 sleep_time_min = 5  # the amount of minutes to sleep between checks
 
@@ -45,13 +49,13 @@ def exit_handler():
         driver.quit()
     # if the driver iss already closed
     except:
-        print("Exiting..")
+        print("Exiting..",flush = True)
     sys.stdout.close()
 
 # function to save the data to a json file
 def dump_json(course_list):
     with open('S:/data.json','w+',encoding = 'utf-8') as f:
-        print("Dumping data to json")
+        print("Dumping data to json",flush = True)
         json.dump(course_list,f,ensure_ascii = False,indent = 4,default = obj_dict)
         f.close()
 
@@ -88,17 +92,17 @@ chrome_options.add_argument("--log-level=3")  #disable logging into the console
 chrome_options.add_experimental_option('excludeSwitches',['enable-logging'])
 driver = webdriver.Chrome(executable_path = CHROMEDRIVER_PATH,options = chrome_options)  # generate the driver
 atexit.register(exit_handler)  # when the script exits run function exit_handler
-print("Trying to load file...")
+print("Trying to load file...",flush = True)
 # try to load data from a json file
 try:
     f = open('S:/data.json',mode = 'r',encoding = "utf-8")
     # populate the course list with data from json
     course_list = json.load(f)
     f.close()
-    print("json loaded")
+    print("json loaded",flush = True)
 # if the file wasn't loaded properly we need to get the information via Selenium again
 except:
-    print("json not found, getting list via Selenium")
+    print("json not found, getting list via Selenium",flush = True)
     selenium_login(driver)  #login webdriver to moodle
     #driver = webdriver.Chrome(executable_path = CHROMEDRIVER_PATH,options = chrome_options)
     #driver.get_screenshot_as_file("capture" + ".png")  # take screenshot
@@ -117,7 +121,7 @@ except:
         formatted_html = soup.get_text("\n",strip = False)  #get text from HTML using soup
         my_dict[s] = course_name  # map page id to course name
         course_list.append(CoursePage(course_name,s,formatted_html))  # create a new course object and add to the list
-    print("Finished iterating through the pages")
+    print("Finished iterating through the pages",flush = True)
     # close the driver
     driver.close()
     driver.quit()
@@ -134,7 +138,7 @@ while True:
     now = datetime.now()
     dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
     print(dt_string)
-    print("Preforming comparison")
+    print("Preforming comparison",flush = True)
     # driver = webdriver.Chrome(executable_path = CHROMEDRIVER_PATH,options = chrome_options)
     # login to moodle if needed
     try:
@@ -161,13 +165,13 @@ while True:
         if formatted_html == page["html"]:
             # reverse a name to print it out mirrored to the cmd
             page_name_reverse = ((page["name"])[::-1]).encode('utf8')
-            print("No differences found in " + page_name_reverse.decode('utf8'))
+            print("No differences found in " + page_name_reverse.decode('utf8'),flush = True)
             driver.get_screenshot_as_file("capture" + page["name"] + ".png")  #take screenshot
             continue
         else:
             # reverse a name to print it out mirrored to the cmd
             page_name_reverse = ((page["name"])[::-1]).encode('utf8')
-            print("HTML's differ in " + page_name_reverse.decode('utf8'))
+            print("HTML's differ in " + page_name_reverse.decode('utf8'),flush = True)
             now = datetime.now()
             dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
             #diff_str = str((formatted_html.split(page["html"]))[0])
@@ -182,7 +186,7 @@ while True:
                 f.write("\n********************************************************\n")
                 f.flush()
                 f.close()
-            print("*****************************")
+            print("*****************************",flush = True)
             pattern = 'תרגיל' #pattern for regex
             telegram_send.send(messages = ["Difference found in page " + page["name"]])
             # if there is an exercise and not a solution to an exercise
@@ -200,7 +204,7 @@ while True:
             f.close()
     # driver.close()
     # driver.quit()
-    print("Waiting " + str(sleep_time_min) + " minutes")
+    print("Waiting " + str(sleep_time_min) + " minutes",flush = True)
     sys.stdout.flush()
     # sleep for the required number of minutes
     time.sleep(60 * sleep_time_min)
