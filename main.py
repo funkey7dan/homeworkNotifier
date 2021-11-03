@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-from login import U_NAME
+from login import U_NAME,TOKEN
 import time
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 import telegram_send
+import telegram
 from warnings import filterwarnings
 import keyring
 import re
@@ -92,6 +93,7 @@ chrome_options.binary_location = CHROME_PATH
 chrome_options.add_argument("--log-level=3")  #disable logging into the console
 chrome_options.add_experimental_option('excludeSwitches',['enable-logging'])
 driver = webdriver.Chrome(executable_path = CHROMEDRIVER_PATH,options = chrome_options)  # generate the driver
+bot = telegram.Bot(token = TOKEN)
 atexit.register(exit_handler)  # when the script exits run function exit_handler
 print("Trying to load file...",flush = True)
 # try to load data from a json file
@@ -188,13 +190,18 @@ while True:
                 f.flush()
                 f.close()
             print("*****************************",flush = True)
-            pattern = 'תרגיל' #pattern for regex
+            pattern = 'תרגיל'  #pattern for regex
+            other_pattern = '(EX | ex)'
             telegram_send.send(messages = ["Difference found in page " + page["name"]])
+            bot.send_message(text = ["Difference found in page " + page["name"]],chat_id = '-1001625759648')
             # if there is an exercise and not a solution to an exercise
-            if re.search(pattern,diff_str) and not re.search('פתרון',diff_str):
+            if (re.search(pattern,diff_str) or re.search(other_pattern,diff_str)) and not re.search('פתרון',diff_str):
                 #telegram_send.send(messages = ["Difference contains exercise: \n",diff_str])
                 telegram_send.send(messages = ["עמוד הקורס עודכן,התוספת היא: \n" + diff_str])
+                bot.send_message(text = ["עמוד הקורס עודכן,התוספת היא: \n" + diff_str],chat_id = '-1001625759648')
             driver.get_screenshot_as_file("capture" + page["name"] + ".png")  #take screenshot
+            screenshot_name = ("capture" + page["name"] + ".png")
+            bot.send_photo(photo = screenshot_name,chat_id = '-1001625759648')
             # save the new html to the course object
             page["html"] = formatted_html
             # save the new data to the json file
