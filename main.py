@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-from login import U_NAME
+from login import U_NAME, PWD, TOKEN
 import time
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
+from Screenshot import Screenshot_Clipping
 import telegram_send
 from warnings import filterwarnings
 import keyring
@@ -35,7 +36,8 @@ def selenium_login(driver):
     submit_button = driver.find_element_by_xpath("//input[@type='submit' and @value='התחברות']")
     user_name = U_NAME  #ID goes here
     search_box1.send_keys(user_name)
-    search_box2.send_keys(keyring.get_password("moodle",user_name))  #Get the password from the keyring
+    #search_box2.send_keys(keyring.get_password("moodle",user_name))  #Get the password from the keyring
+    search_box2.send_keys(PWD)
     submit_button.click()  #log in
     time.sleep(2)
 
@@ -55,7 +57,7 @@ def exit_handler():
 
 # function to save the data to a json file
 def dump_json(course_list):
-    with open('S:/data.json','w+',encoding = 'utf-8') as f:
+    with open('data.json','w+',encoding = 'utf-8') as f:
         print("Dumping data to json",flush = True)
         json.dump(course_list,f,ensure_ascii = False,indent = 4,default = obj_dict)
         f.close()
@@ -82,21 +84,22 @@ def get_formatted_html(page):
     formatted_html = soup.get_text("\n",strip = False)
     return formatted_html
 
-CHROME_PATH = 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'  #path to chrome app
-CHROMEDRIVER_PATH = 'C:/Users/funke/PycharmProjects/homeworkNotifier/chromedriver.exe'  #path to chrome driver
-WINDOW_SIZE = "3440,1440"
+#CHROME_PATH = '/usr/lib/chromium-browser/chromium-browser-v7'  #path to chrome app
+CHROMEDRIVER_PATH = '/usr/lib/chromium-browser/chromedriver'  #path to chrome driver
+WINDOW_SIZE = "1920,1080"
 chrome_options = Options()
 chrome_options.add_argument("--headless")
 chrome_options.add_argument("--window-size=%s" % WINDOW_SIZE)
-chrome_options.binary_location = CHROME_PATH
+#chrome_options.binary_location = CHROME_PATH
 chrome_options.add_argument("--log-level=3")  #disable logging into the console
 chrome_options.add_experimental_option('excludeSwitches',['enable-logging'])
 driver = webdriver.Chrome(executable_path = CHROMEDRIVER_PATH,options = chrome_options)  # generate the driver
 atexit.register(exit_handler)  # when the script exits run function exit_handler
+ob = Screenshot_Clipping.Screenshot()
 print("Trying to load file...",flush = True)
 # try to load data from a json file
 try:
-    f = open('S:/data.json',mode = 'r',encoding = "utf-8")
+    f = open('data.json',mode = 'r',encoding = "utf-8")
     # populate the course list with data from json
     course_list = json.load(f)
     f.close()
@@ -128,7 +131,7 @@ except:
     driver.quit()
     # save the data we got to a json file
     dump_json(course_list)
-    f = open('S:/data.json',mode = 'r',encoding = "utf-8")
+    f = open('data.json',mode = 'r',encoding = "utf-8")
     course_list = json.load(f)
     # flush the buffer of the file (prevents cmd from getting stuck)
     f.flush()
@@ -165,9 +168,11 @@ while True:
         # if the formatted html is the same as new HTML
         if formatted_html == page["html"]:
             # reverse a name to print it out mirrored to the cmd
-            page_name_reverse = ((page["name"])[::-1]).encode('utf8')
+            #page_name_reverse = ((page["name"])[::-1]).encode('utf8')
+            page_name_reverse = ((page["name"])).encode('utf8')
             print("No differences found in " + page_name_reverse.decode('utf8'),flush = True)
             driver.get_screenshot_as_file("capture" + page["name"] + ".png")  #take screenshot
+            img_url=ob.full_Screenshot(driver, save_path=r'.', image_name="FULL " + page["name"]+".png")
             continue
         else:
             # reverse a name to print it out mirrored to the cmd
@@ -179,7 +184,7 @@ while True:
             # get the difference between the pages in a string
             diff_str = compare_html_strings(page["html"],formatted_html)
             # write the changes to a text file
-            with open(file = "S:/out.txt",mode = "a",encoding = 'utf8') as f:
+            with open(file = "out.txt",mode = "a",encoding = 'utf8') as f:
                 f.write(dt_string + "\n" + page["name"] + ": \n")
                 # f.write("Old:\n" + page['html'] + "\n################\n") #DEBUG
                 # f.write("New:\n" + formatted_html + "\n################\n") #DEBUG
@@ -199,7 +204,7 @@ while True:
             page["html"] = formatted_html
             # save the new data to the json file
             dump_json(course_list)
-            f = open('S:/data.json',mode = 'r',encoding = "utf-8")
+            f = open('data.json',mode = 'r',encoding = "utf-8")
             course_list = json.load(f)
             f.flush()
             f.close()
