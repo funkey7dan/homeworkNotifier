@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from login import U_NAME, PWD, TOKEN
 from PIL import Image
-from datetime import datetime
+import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
@@ -49,11 +49,13 @@ def exit_handler():
     # if the driver iss already closed
     except:
         print("Exiting..",flush = True)
+    bot.send_message(text = "Script exited",
+                                     chat_id = my_chat_id)
     sys.stdout.close()
 
 # function to save the data to a json file
 def dump_json(course_list):
-    with open('data.json','w+',encoding = 'utf-8') as f:
+    with open('data.json' ,'w',encoding = 'utf-8') as f:
         print("Dumping data to json",flush = True)
         json.dump(course_list,f,ensure_ascii = False,indent = 4,default = obj_dict)
         f.close()
@@ -74,10 +76,13 @@ def compare_html_strings(a,b):
     return " ".join(new_str)
 
 def get_formatted_html(page):
-    driver.get("https://lemida.biu.ac.il/course/view.php?id=" + page["page_id"])
-    temp_html = driver.find_element_by_id("region-main").get_attribute("innerHTML")
-    soup = BeautifulSoup(temp_html,"lxml")
-    formatted_html = soup.get_text("\n",strip = False)
+    try:
+        driver.get("https://lemida.biu.ac.il/course/view.php?id=" + page["page_id"])
+        temp_html = driver.find_element_by_id("region-main").get_attribute("innerHTML")
+        soup = BeautifulSoup(temp_html,"lxml")
+        formatted_html = soup.get_text("\n",strip = False)
+    except Exception as e:
+        print(e)
     return formatted_html
 
 def send_photo_PIL(fp):
@@ -90,6 +95,13 @@ def send_photo_PIL(fp):
     byte_im = buf.getvalue()
     bot.send_document(document = byte_im,chat_id = my_chat_id,filename = fp)
 
+def check_timerange():
+    now = datetime.datetime.now()
+    start = datetime.time(hour = 00, minute = 1)
+    end = datetime.time(5)
+    return (start <= now.time() <= end)
+    
+    
 #CHROME_PATH = '/usr/lib/chromium-browser/chromium-browser-v7'  #path to chrome app
 CHROMEDRIVER_PATH = '/usr/lib/chromium-browser/chromedriver'  #path to chrome driver
 WINDOW_SIZE = "1920,1080"
@@ -105,6 +117,8 @@ ob = Screenshot_Clipping.Screenshot()
 bot = telegram.Bot(token = TOKEN)
 my_chat_id = '715815893'
 group_chat_id = '-1001625759648'
+bot.send_message(text = "Script started",
+                                     chat_id = my_chat_id)
 print("Trying to load file...",flush = True)
 # try to load data from a json file
 try:
@@ -149,7 +163,7 @@ except:
 try:
     # main loop of the script
     while True:
-        now = datetime.now()
+        now = datetime.datetime.now()
         dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
         print(dt_string,flush = True)
         print("Preforming comparison",flush = True)
@@ -168,17 +182,25 @@ try:
             # formatted_html = soup.get_text("\n",strip = False)
             formatted_html = get_formatted_html(page)
             # if the page has an error, wait a minute and retry
-            if "Error" in formatted_html or "טעות שגיאה" in formatted_html:
-                time.sleep(60)
+            while "Error" in formatted_html:
+                print("Error in moodle page, sleeping")
+                img_url = ob.full_Screenshot(driver, save_path=r'.', image_name="FULL " + page["name"] + ".png")
+                send_photo_PIL(img_url)
+                time.sleep(120)
                 # driver.get("https://lemida.biu.ac.il/course/view.php?id=" + page["page_id"])
                 # temp_html = driver.find_element_by_id("region-main").get_attribute("innerHTML")
                 # soup = BeautifulSoup(temp_html,"lxml")
                 # formatted_html = soup.get_text("\n",strip = False)
                 formatted_html = get_formatted_html(page)
             # if the formatted html is the same as new HTML
+            if "יש לבצע זיהוי" in formatted_html:
+                selenium_login(driver)
+                time.sleep(1)
+                formatted_html = get_formatted_html(page)
             if formatted_html == page["html"]:
                 # reverse a name to print it out mirrored to the cmd
-                page_name_reverse = ((page["name"])[::-1]).encode('utf8')
+                #page_name_reverse = ((page["name"])[::-1]).encode('utf8')
+                page_name_reverse = ((page["name"])).encode('utf8')
                 print("No differences found in " + page_name_reverse.decode('utf8'),flush = True)
                 driver.get_screenshot_as_file("capture" + page["name"] + ".png")  #take screenshot
                 continue
@@ -186,7 +208,7 @@ try:
                 # reverse a name to print it out mirrored to the cmd
                 page_name_reverse = ((page["name"])[::-1]).encode('utf8')
                 print("HTML's differ in " + page_name_reverse.decode('utf8'),flush = True)
-                now = datetime.now()
+                now = datetime.datetime.now()
                 dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
                 #diff_str = str((formatted_html.split(page["html"]))[0])
                 # get the difference between the pages in a string
@@ -230,10 +252,20 @@ try:
                 f.close()
         # driver.close()
         # driver.quit()
+        try:
+            driver.delete_all_cookies()
+        except Exception as e:
+            print(e)
         print("Waiting " + str(sleep_time_min) + " minutes",flush = True)
         sys.stdout.flush()
+        
         # sleep for the required number of minutes
-        time.sleep(60 * sleep_time_min)
-except KeyboardInterrupt as e:
+        # check if it's night time and sleep for longer
+        if check_timerange():
+            time.sleep(60 * 40)
+        else:
+            time.sleep(60 * sleep_time_min)
+except Exception as e:
+    print(e)
     exit_handler()
     exit()
