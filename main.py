@@ -17,6 +17,7 @@ import keyring,re,json,atexit,sys,difflib,io,telegram,time,telegram_send,time
 
 filterwarnings("ignore",category = DeprecationWarning)
 sleep_time_min = 5  # the amount of minutes to sleep between checks
+restarted_flag = False # flag to see if the script restarted or first started
 
 # A class of course page. Has a name, id, and the page html contents
 class CoursePage:
@@ -58,6 +59,7 @@ def dump_json(course_list):
     with open('data.json' ,'w',encoding = 'utf-8') as f:
         print("Dumping data to json",flush = True)
         json.dump(course_list,f,ensure_ascii = False,indent = 4,default = obj_dict)
+        f.flush()
         f.close()
 
 # get two strings and compare them using difflib.
@@ -101,8 +103,133 @@ def check_timerange():
     end = datetime.time(5)
     return (start <= now.time() <= end)
 
+def main_loop(course_list):
+    try:
+        # main loop of the script
+        while True:
+            now = datetime.datetime.now()
+            dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+            print(dt_string,flush = True)
+            print("Preforming comparison",flush = True)
+            # driver = webdriver.Chrome(executable_path = CHROMEDRIVER_PATH,options = chrome_options)
+            # login to moodle if needed
+            try:
+                selenium_login(driver)
+            except:
+                pass
+            # iterate through all the courses we have in the list
+            for page in course_list:
+                # go to the course page
+                # driver.get("https://lemida.biu.ac.il/course/view.php?id=" + page["page_id"])
+                # temp_html = driver.find_element_by_id("region-main").get_attribute("innerHTML")
+                # soup = BeautifulSoup(temp_html,"lxml")
+                # formatted_html = soup.get_text("\n",strip = False)
+                formatted_html = get_formatted_html(page)
+                # if the page has an error, wait a minute and retry
+                while "Error" in formatted_html:
+                    print("Error in moodle page, sleeping")
+                    img_url = ob.full_Screenshot(driver,save_path = r'.',image_name = "FULL " + page["name"] + ".png")
+                    send_photo_PIL(img_url)
+                    time.sleep(120)
+                    # driver.get("https://lemida.biu.ac.il/course/view.php?id=" + page["page_id"])
+                    # temp_html = driver.find_element_by_id("region-main").get_attribute("innerHTML")
+                    # soup = BeautifulSoup(temp_html,"lxml")
+                    # formatted_html = soup.get_text("\n",strip = False)
+                    formatted_html = get_formatted_html(page)
+                # if the formatted html is the same as new HTML
+                while "יש לבצע זיהוי" in formatted_html or "אורחים" in formatted_html:
+                    selenium_login(driver)
+                    time.sleep(1)
+                    formatted_html = get_formatted_html(page)
+                if formatted_html == page["html"]:
+                    # reverse a name to print it out mirrored to the cmd
+                    #page_name_reverse = ((page["name"])[::-1]).encode('utf8')
+                    page_name_reverse = ((page["name"])).encode('utf8')
+                    print("No differences found in " + page_name_reverse.decode('utf8'),flush = True)
+                    driver.get_screenshot_as_file("capture" + page["name"] + ".png")  #take screenshot
+                    continue
+                else:
+                    # reverse a name to print it out mirrored to the cmd
+                    page_name_reverse = ((page["name"])[::-1]).encode('utf8')
+                    print("HTML's differ in " + page_name_reverse.decode('utf8'),flush = True)
+                    now = datetime.datetime.now()
+                    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+                    # get the difference between the pages in a string
+                    diff_str = compare_html_strings(page["html"],formatted_html)
+                    # write the changes to a text file
+                    with open(file = "out.txt",mode = "a",encoding = 'utf8') as f:
+                        f.write(dt_string + "\n" + page["name"] + ": \n")
+                        # f.write("Old:\n" + page['html'] + "\n################\n") #DEBUG
+                        # f.write("New:\n" + formatted_html + "\n################\n") #DEBUG
+                        f.write(diff_str)
+                        f.write("\n********************************************************\n")
+                        f.flush()
+                        f.close()
+                    print("*****************************",flush = True)
+                    pattern = 'תרגיל'  #pattern for regex
+                    pattern2 = 'משוב'  #pattern for regex
+                    pattern3 = 'הוגש  בתאריך'
+                    other_pattern = '(EX | ex)'
+                    if not re.search(pattern2,diff_str) and not re.search(pattern3,diff_str):
+                        #telegram_send.send(messages = ["Difference found in page " + page["name"]])
+                        try:
+                            bot.send_message(text = "עמוד הקורס " + page["name"] + " עודכן,התוספת היא: \n" + diff_str,
+                                             chat_id = my_chat_id)
+                        except:
+                            bot.send_message(text = "Update message threw an exception",
+                                             chat_id = my_chat_id)
+                            pass
+                    # if there is an exercise and not a solution to an exercise
+                    elif (re.search(pattern,diff_str) or re.search(other_pattern,diff_str)) and not re.search('פתרון',
+                                                                                                              diff_str):
+                        #telegram_send.send(messages = ["Difference contains exercise: \n",diff_str])
+                        #telegram_send.send(messages = ["עמוד הקורס עודכן,התוספת היא: \n" + diff_str])
+                        try:
+                            bot.send_message(text = "עמוד הקורס " + page[
+                                "name"] + " עודכן והעדכון מכיל את המילה תרגיל,התוספת היא: \n" + diff_str,
+                                             chat_id = my_chat_id)
+                        except:
+                            bot.send_message(text = "Update message threw an exception",
+                                             chat_id = my_chat_id)
+                            pass
+                    driver.get_screenshot_as_file("capture" + page["name"] + ".png")  #take screenshot
+                    screenshot_name = ("capture" + page["name"] + ".png")
+                    img_url = ob.full_Screenshot(driver,save_path = r'.',image_name = "FULL " + page["name"] + ".png")
+                    send_photo_PIL(img_url)
+                    # save the new html to the course object
+                    page["html"] = formatted_html
+                    # save the new data to the json file
+                    dump_json(course_list)
+                    # f = open('data.json',mode = 'r',encoding = "utf-8")
+                    # course_list = json.load(f)
+                    # f.flush()
+                    # f.close()
+            # driver.close()
+            # driver.quit()
+            try:
+                driver.delete_all_cookies()
+            except Exception as e:
+                print(e)
+            print("Waiting " + str(sleep_time_min) + " minutes",flush = True)
+            sys.stdout.flush()
+
+            # sleep for the required number of minutes
+            # check if it's night time and sleep for longer
+            if check_timerange():
+                time.sleep(60 * 40)
+            else:
+                time.sleep(60 * sleep_time_min)
+    except Exception as e:
+        print(e)
+        #exit_handler()
+        #exit()
+        
 def main():
-    bot.send_message(text = "Script started",chat_id = my_chat_id)
+    global restarted_flag
+    if not restarted_flag:
+        bot.send_message(text = "Script started",chat_id = my_chat_id)
+    else:
+        bot.send_message(text = "Script restarted",chat_id = my_chat_id)
     print("Trying to load file...",flush = True)
     # try to load data from a json file
     try:
@@ -144,117 +271,8 @@ def main():
         # flush the buffer of the file (prevents cmd from getting stuck)
         f.flush()
         f.close()
-
-    try:
-        # main loop of the script
-        while True:
-            now = datetime.datetime.now()
-            dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
-            print(dt_string,flush = True)
-            print("Preforming comparison",flush = True)
-            # driver = webdriver.Chrome(executable_path = CHROMEDRIVER_PATH,options = chrome_options)
-            # login to moodle if needed
-            try:
-                selenium_login(driver)
-            except:
-                pass
-            # iterate through all the courses we have in the list
-            for page in course_list:
-                # go to the course page
-                # driver.get("https://lemida.biu.ac.il/course/view.php?id=" + page["page_id"])
-                # temp_html = driver.find_element_by_id("region-main").get_attribute("innerHTML")
-                # soup = BeautifulSoup(temp_html,"lxml")
-                # formatted_html = soup.get_text("\n",strip = False)
-                formatted_html = get_formatted_html(page)
-                # if the page has an error, wait a minute and retry
-                while "Error" in formatted_html:
-                    print("Error in moodle page, sleeping")
-                    img_url = ob.full_Screenshot(driver,save_path = r'.',image_name = "FULL " + page["name"] + ".png")
-                    send_photo_PIL(img_url)
-                    time.sleep(120)
-                    # driver.get("https://lemida.biu.ac.il/course/view.php?id=" + page["page_id"])
-                    # temp_html = driver.find_element_by_id("region-main").get_attribute("innerHTML")
-                    # soup = BeautifulSoup(temp_html,"lxml")
-                    # formatted_html = soup.get_text("\n",strip = False)
-                    formatted_html = get_formatted_html(page)
-                # if the formatted html is the same as new HTML
-                if "יש לבצע זיהוי" in formatted_html:
-                    selenium_login(driver)
-                    time.sleep(1)
-                    formatted_html = get_formatted_html(page)
-                if formatted_html == page["html"]:
-                    # reverse a name to print it out mirrored to the cmd
-                    #page_name_reverse = ((page["name"])[::-1]).encode('utf8')
-                    page_name_reverse = ((page["name"])).encode('utf8')
-                    print("No differences found in " + page_name_reverse.decode('utf8'),flush = True)
-                    driver.get_screenshot_as_file("capture" + page["name"] + ".png")  #take screenshot
-                    continue
-                else:
-                    # reverse a name to print it out mirrored to the cmd
-                    page_name_reverse = ((page["name"])[::-1]).encode('utf8')
-                    print("HTML's differ in " + page_name_reverse.decode('utf8'),flush = True)
-                    now = datetime.datetime.now()
-                    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
-                    #diff_str = str((formatted_html.split(page["html"]))[0])
-                    # get the difference between the pages in a string
-                    diff_str = compare_html_strings(page["html"],formatted_html)
-                    # write the changes to a text file
-                    with open(file = "out.txt",mode = "a",encoding = 'utf8') as f:
-                        f.write(dt_string + "\n" + page["name"] + ": \n")
-                        # f.write("Old:\n" + page['html'] + "\n################\n") #DEBUG
-                        # f.write("New:\n" + formatted_html + "\n################\n") #DEBUG
-                        f.write(diff_str)
-                        f.write("\n********************************************************\n")
-                        f.flush()
-                        f.close()
-                    print("*****************************",flush = True)
-                    pattern = 'תרגיל'  #pattern for regex
-                    pattern2 = 'משוב'  #pattern for regex
-                    pattern3 = 'הוגש  בתאריך'
-                    other_pattern = '(EX | ex)'
-                    if not re.search(pattern2,diff_str) and not re.search(pattern3,diff_str):
-                        #telegram_send.send(messages = ["Difference found in page " + page["name"]])
-                        bot.send_message(text = "עמוד הקורס " + page["name"] + " עודכן,התוספת היא: \n" + diff_str,
-                                         chat_id = group_chat_id)
-                    # if there is an exercise and not a solution to an exercise
-                    elif (re.search(pattern,diff_str) or re.search(other_pattern,diff_str)) and not re.search('פתרון',
-                                                                                                              diff_str):
-                        #telegram_send.send(messages = ["Difference contains exercise: \n",diff_str])
-                        #telegram_send.send(messages = ["עמוד הקורס עודכן,התוספת היא: \n" + diff_str])
-                        bot.send_message(text = "עמוד הקורס " + page[
-                            "name"] + " עודכן והעדכון מכיל את המילה תרגיל,התוספת היא: \n" + diff_str,
-                                         chat_id = group_chat_id)
-                    driver.get_screenshot_as_file("capture" + page["name"] + ".png")  #take screenshot
-                    screenshot_name = ("capture" + page["name"] + ".png")
-                    img_url = ob.full_Screenshot(driver,save_path = r'.',image_name = "FULL " + page["name"] + ".png")
-                    send_photo_PIL(img_url)
-                    # save the new html to the course object
-                    page["html"] = formatted_html
-                    # save the new data to the json file
-                    dump_json(course_list)
-                    f = open('data.json',mode = 'r',encoding = "utf-8")
-                    course_list = json.load(f)
-                    f.flush()
-                    f.close()
-            # driver.close()
-            # driver.quit()
-            try:
-                driver.delete_all_cookies()
-            except Exception as e:
-                print(e)
-            print("Waiting " + str(sleep_time_min) + " minutes",flush = True)
-            sys.stdout.flush()
-
-            # sleep for the required number of minutes
-            # check if it's night time and sleep for longer
-            if check_timerange():
-                time.sleep(60 * 40)
-            else:
-                time.sleep(60 * sleep_time_min)
-    except Exception as e:
-        print(e)
-        exit_handler()
-        exit()
+    
+    main_loop(course_list)
 
 #CHROME_PATH = '/usr/lib/chromium-browser/chromium-browser-v7'  #path to chrome app
 CHROMEDRIVER_PATH = '/usr/lib/chromium-browser/chromedriver'  #path to chrome driver
@@ -262,6 +280,8 @@ WINDOW_SIZE = "1920,1080"
 chrome_options = Options()
 chrome_options.add_argument("--headless")
 chrome_options.add_argument("--window-size=%s" % WINDOW_SIZE)
+chrome_options.add_argument("enable-features=NetworkServiceInProcess")
+chrome_options.add_argument("disable-features=NetworkService")
 #chrome_options.binary_location = CHROME_PATH
 chrome_options.add_argument("--log-level=3")  #disable logging into the console
 chrome_options.add_experimental_option('excludeSwitches',['enable-logging'])
