@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 from asyncio import sleep
 from multiprocessing.connection import wait
-from login import U_NAME, PWD, TOKEN
+from login import U_NAME, PWD, TOKEN # the credentials are saved in a different file for security
 from PIL import Image
 import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 from Screenshot import Screenshot_Clipping
-import telegram_send
 from warnings import filterwarnings
-import keyring,re,json,atexit,sys,difflib,io,telegram,time,telegram_send,time
+import re,json,atexit,sys,difflib,io,telegram,time,telegram_send,time
 import requests
 
 
@@ -30,7 +29,6 @@ class CoursePage:
         self.html = html
 # Go to the moodle homepage and login using the credentials in the keyring
 def selenium_login(driver):
-    #print("Logging in...")
     driver.get('https://lemida.biu.ac.il/')
     try:
         driver.find_element_by_id("usermenu")
@@ -42,8 +40,7 @@ def selenium_login(driver):
     submit_button = driver.find_element_by_xpath("//input[@type='submit' and @value='התחברות']")
     user_name = U_NAME  #ID goes here
     search_box1.send_keys(user_name)
-    #search_box2.send_keys(keyring.get_password("moodle",user_name))  #Get the password from the keyring
-    search_box2.send_keys(PWD)
+    search_box2.send_keys(PWD) #password goes here
     submit_button.click()  #log in
     time.sleep(2)
 
@@ -72,6 +69,7 @@ def dump_json(course_list):
         f.close()
         print("Finished dumping json")
 
+# convert a dictionary to a page object
 def dict_to_course(page):
     if type(page) is CoursePage:
         return page
@@ -119,12 +117,15 @@ def send_photo_PIL(fp):
     byte_im = buf.getvalue()
     bot.send_document(document = byte_im,chat_id = my_chat_id,filename = fp)
 
+# function to check  if  we are in a certain timerange
 def check_timerange():
     now = datetime.datetime.now()
+    # check the timerange between midnight and 5 in the morning
     start = datetime.time(hour = 00, minute = 1)
     end = datetime.time(5)
     return (start <= now.time() <= end)
 
+# make a course page object from a passed id
 def course_page_from_id(course_id):
             driver.get("https://lemida.biu.ac.il/course/view.php?id=" + course_id)  #go to course page using id from list
             course_name = driver.find_element_by_xpath("//*[@id='sitetitle']/h1").get_attribute(
@@ -137,14 +138,18 @@ def course_page_from_id(course_id):
             return (CoursePage(course_name,course_id,formatted_html))  # create a new course object and return it
 
 
+# main loop of the code - goes over the passed list, checking whether the pages in the page id are all present.
+# checks if the html saved in the object in the list is the same as the html we scrape from the page
+# notifies about the changes using telegram
 def main_loop(course_list):
-    
     global pages_id_list #the list that hold the id of courses for navigating to their web page
     try:
         # main loop of the script
         while True:
+            # print out the timestamp with visual separator
             now = datetime.datetime.now()
             dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+            print("#####################################")
             print(dt_string,flush = True)
             print("Preforming comparison",flush = True)
             
@@ -166,7 +171,6 @@ def main_loop(course_list):
                 else:
                     formatted_html = get_formatted_html(page)
                 # if the page has an error, wait a minute and retry
-                #while "Error" in formatted_html or "error" in formatted_html:
                 pattern1 = re.compile('(((E|e)rror)+)|(טעות)|(שגיאה)')
                 pattern_lock = re.compile('((s|S)ession lock)')
                 pattern_guest = re.compile('((אורחים  אינם )|(אפשרויות  גישה))')
@@ -226,8 +230,6 @@ def main_loop(course_list):
                     # if there is an exercise and not a solution to an exercise
                     elif (re.search(pattern,diff_str) or re.search(other_pattern,diff_str)) and not re.search('פתרון',
                                                                                                             diff_str):
-                        #telegram_send.send(messages = ["Difference contains exercise: \n",diff_str])
-                        #telegram_send.send(messages = ["עמוד הקורס עודכן,התוספת היא: \n" + diff_str])
                         try:
                             bot.send_message(text = "עמוד הקורס " + page.name + " עודכן והעדכון מכיל את המילה תרגיל,התוספת היא: \n" + diff_str,
                                             chat_id = my_chat_id)
@@ -236,7 +238,6 @@ def main_loop(course_list):
                                             chat_id = my_chat_id)
                             pass
                     driver.get_screenshot_as_file("capture" + page.name + ".png")  #take screenshot
-                    screenshot_name = ("capture" + page.name + ".png")
                     img_url = ob.full_Screenshot(driver,save_path = r'.',image_name = "FULL " + page.name + ".png")
                     send_photo_PIL(img_url)
                     # save the new html to the course object
@@ -244,11 +245,6 @@ def main_loop(course_list):
             
             # save the new data to the json file
             dump_json(course_list)
-            #try:
-            #    driver.delete_all_cookies()
-            #except Exception as e:
-            #    print(e)
-            #print("Waiting " + str(sleep_time_min) + " minutes",flush = True)
             sys.stdout.flush()
 
             # sleep for the required number of minutes
@@ -261,17 +257,20 @@ def main_loop(course_list):
     except Exception as e:
         print(e)
 
-        
+# a wrapper function for the main_loop
+# loads the json file containing the data, and if needed fetches it from the webpages
 def main():
     global retries
     print("Starting main function")
     global pages_id_list
     pages_id_list = ["69089","70232","69037","69059","69061","69278"]  # list of page ID's for the courses
     global restarted_flag
+    # differentiate between a start of the script and restart
     if not restarted_flag:
         bot.send_message(text = "Script started",chat_id = my_chat_id)
         restarted_flag = True
     else:
+        # flood control
         if retries>5:
             exit(-1)
         retries+=1
@@ -283,9 +282,7 @@ def main():
     try:
         f = open('data.json',mode = 'r',encoding = "utf-8")
         # populate the course list with data from json
-        
         course_list_dict = json.load(f)
-        
         f.close()
         # the json returns a disctionary, transform to list of course page objects
         for c in course_list_dict:
@@ -298,40 +295,29 @@ def main():
             selenium_login(driver)  #login webdriver to moodle
         except:
             print("Got an exception during login in main.")
-        #driver = webdriver.Chrome(executable_path = CHROMEDRIVER_PATH,options = chrome_options)
-        #driver.get_screenshot_as_file("capture" + ".png")  # take screenshot
+
         my_dict = {}
-        html_list = []
         #iterate through all the given page ID and map them to the course name
         for s in pages_id_list:
-            # driver.get("https://lemida.biu.ac.il/course/view.php?id=" + s)  #go to course page using id from list
-            # course_name = driver.find_element_by_xpath("//*[@id='sitetitle']/h1").get_attribute(
-            #     "innerHTML")  # get  name from page
-            # temp_html = driver.find_element_by_id("region-main").get_attribute(
-            #     "innerHTML")  # find the region with the course info
-            # soup = BeautifulSoup(temp_html,"lxml")  # parse the html using BS
-            # formatted_html = soup.get_text("\n",strip = False)  #get text from HTML using soup
-            # my_dict[s] = course_name  # map page id to course name
-            # course_list.append(
-            #     CoursePage(course_name,s,formatted_html))  # create a new course object and add to the list
             temp_course = course_page_from_id(s)
             course_list.append(temp_course)
-              # create a new course object and add to the list
+            # create a new course object and add to the list
             my_dict[s] = temp_course.name  # map page id to course name
         print("Finished iterating through the pages",flush = True)
-        # close the driver
-        #driver.close()
-        #driver.quit()
+
         # save the data we got to a json file
         dump_json(course_list)
         f = open('data.json',mode = 'r',encoding = "utf-8")
+        #get the courses as dictionary (default json format) and add them to a list as course objects
         course_list_dict = json.load(f)
         for c in course_list_dict:
             course_list.append(dict_to_course(course_list_dict.pop(course_list_dict.index(c))))
-        # flush the buffer of the file (prevents cmd from getting stuck)
+
+        # flush the buffer of the file (prevents terminal from getting stuck)
         f.flush()
         f.close()
         time.sleep(60 * sleep_time_min)
+    # finished building the data, run the main loop
     main_loop(course_list)
 
 bot = telegram.Bot(token = TOKEN)
@@ -347,13 +333,9 @@ chrome_options.add_argument("--headless")
 chrome_options.add_argument("--window-size=%s" % WINDOW_SIZE)
 chrome_options.add_argument('--no-sandbox')        
 chrome_options.add_argument('user-agent=Mozilla/5.0 (X11; CrOS armv7l 13597.84.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.106 Safari/537.36')
-#chrome_options.add_argument("enable-features=NetworkServiceInProcess")
-#chrome_options.add_argument("disable-features=NetworkService")
-#chrome_options.add_argument("--log-level=3")  #disable logging into the console
-#chrome_options.add_experimental_option('excludeSwitches',['enable-logging'])
+
 driver = webdriver.Chrome(options = chrome_options)  # generate the driver.
 driver.implicitly_wait(5)
-  # when the script exits run function exit_handler
 ob = Screenshot_Clipping.Screenshot()
 
 
