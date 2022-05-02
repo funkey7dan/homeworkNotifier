@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from asyncio import sleep
 from multiprocessing.connection import wait
+from tkinter.tix import Tree
 from login import U_NAME, PWD, TOKEN # the credentials are saved in a different file for security
 from PIL import Image
 import datetime
@@ -20,7 +21,7 @@ import requests
 filterwarnings("ignore",category = DeprecationWarning)
 sleep_time_min = 5  # the amount of minutes to sleep between checks
 restarted_flag = False # flag to see if the script restarted or first started
-
+launched = False
 # A class of course page. Has a name, id, and the page html contents
 class CoursePage:
     def __init__(self,name,page_id,html):
@@ -56,7 +57,8 @@ def exit_handler():
     # if the driver iss already closed
     except:
         print("Exiting..",flush = True)
-    bot.send_message(text = "Script exited",
+    if(launched):
+        bot.send_message(text = "Script exited",
                                      chat_id = my_chat_id)
     sys.stdout.close()
 
@@ -190,9 +192,11 @@ def main_loop(course_list):
                     selenium_login(driver)
                     time.sleep(1)
                     formatted_html = get_formatted_html(page)
-                # no difference in the page html
 
-                if formatted_html == page.html:
+                # get the difference between the pages in a string
+                diff_str = compare_html_strings(page.html,formatted_html)
+                # no difference in the page html
+                if formatted_html == page.html or diff_str=='':
                     # reverse a name to print it out mirrored to the cmd
                     page_name_reverse = ((page.name)).encode('utf8')
                     print("No differences found in " + page_name_reverse.decode('utf8'),flush = True)
@@ -204,8 +208,6 @@ def main_loop(course_list):
                     print("HTML's differ in " + page_name_reverse.decode('utf8'),flush = True)
                     now = datetime.datetime.now()
                     dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
-                    # get the difference between the pages in a string
-                    diff_str = compare_html_strings(page.html,formatted_html)
                     # write the changes to a text file
                     with open(file = "out.txt",mode = "a",encoding = 'utf8') as f:
                         f.write(dt_string + "\n" + page.name + ": \n")
@@ -222,7 +224,7 @@ def main_loop(course_list):
                         #telegram_send.send(messages = ["Difference found in page " + page.name])
                         try:
                             bot.send_message(text = "עמוד הקורס " + page.name + " עודכן,התוספת היא: \n" + diff_str,
-                                            chat_id = my_chat_id)
+                                            chat_id = group_chat_id)
                         except:
                             bot.send_message(text = "Update message threw an exception",
                                             chat_id = my_chat_id)
@@ -232,7 +234,7 @@ def main_loop(course_list):
                                                                                                             diff_str):
                         try:
                             bot.send_message(text = "עמוד הקורס " + page.name + " עודכן והעדכון מכיל את המילה תרגיל,התוספת היא: \n" + diff_str,
-                                            chat_id = my_chat_id)
+                                            chat_id = group_chat_id)
                         except:
                             bot.send_message(text = "Update message threw an exception",
                                             chat_id = my_chat_id)
@@ -333,8 +335,11 @@ chrome_options.add_argument("--headless")
 chrome_options.add_argument("--window-size=%s" % WINDOW_SIZE)
 chrome_options.add_argument('--no-sandbox')        
 chrome_options.add_argument('user-agent=Mozilla/5.0 (X11; CrOS armv7l 13597.84.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.106 Safari/537.36')
-
-driver = webdriver.Chrome(options = chrome_options)  # generate the driver.
+try:
+    driver = webdriver.Chrome(options = chrome_options)  # generate the driver.
+    launched = True
+except:
+    print("Failed to generate driver")
 driver.implicitly_wait(5)
 ob = Screenshot_Clipping.Screenshot()
 
