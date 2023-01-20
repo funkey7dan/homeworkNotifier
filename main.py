@@ -10,8 +10,9 @@ from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 from Screenshot import Screenshot_Clipping
 from warnings import filterwarnings
-import re,json,atexit,sys,difflib,io,telegram,time,telegram_send,time
+import re,json,atexit,sys,difflib,io,telegram,time,telegram_send,time,signal
 import requests
+
 
 
 #
@@ -20,6 +21,7 @@ import requests
 
 filterwarnings("ignore",category = DeprecationWarning)
 sleep_time_min = 5  # the amount of minutes to sleep between checks
+sleep_retries_base = 2
 restarted_flag = False # flag to see if the script restarted or first started
 launched = False
 # A class of course page. Has a name, id, and the page html contents
@@ -49,18 +51,20 @@ def obj_dict(obj):
     return obj.__dict__
 
 # function for handling the exit
-def exit_handler():
+def exit_handler(signum=None,frame=None):
     # try to close the driver
+    print("Exiting..",flush = True)
     try:
-        driver.close()
+        #driver.close()
         driver.quit()
     # if the driver iss already closed
     except:
-        print("Exiting..",flush = True)
+        print("Exception when calling driver.quit()",flush = True)
     if(launched):
         bot.send_message(text = "Script exited",
                                      chat_id = my_chat_id)
     sys.stdout.close()
+    exit(0)
 
 # function to save the data to a json file
 def dump_json(course_list):
@@ -101,6 +105,9 @@ def get_formatted_html(page):
         #     driver.get("https://lemida.biu.ac.il/course/view.php?id=" + page["page_id"])
         temp_html = driver.find_element_by_id("region-main").get_attribute("innerHTML")
         soup = BeautifulSoup(temp_html,"lxml")
+        # a fix to prevent embedded images breaking the script 
+        #for div in soup.find_all("div", {'class':'mediaplugin mediaplugin_videojs d-block'}): 
+            #div.decompose()
         formatted_html = soup.get_text("\n",strip = False)
     except requests.exceptions.ConnectionError:
         print("Connection refused,sleeping for five") 
@@ -135,6 +142,9 @@ def course_page_from_id(course_id):
             temp_html = driver.find_element_by_id("region-main").get_attribute(
                 "innerHTML")  # find the region with the course info
             soup = BeautifulSoup(temp_html,"lxml")  # parse the html using BS
+            # a fix to prevent embedded images breaking the script 
+            #for div in soup.find_all("div", {'class':'mediaplugin mediaplugin_videojs d-block'}): 
+                #div.decompose()
             formatted_html = soup.get_text("\n",strip = False)  #get text from HTML using soup
             
             return (CoursePage(course_name,course_id,formatted_html))  # create a new course object and return it
@@ -143,7 +153,8 @@ def course_page_from_id(course_id):
 # main loop of the code - goes over the passed list, checking whether the pages in the page id are all present.
 # checks if the html saved in the object in the list is the same as the html we scrape from the page
 # notifies about the changes using telegram
-def main_loop(course_list):
+def main_loop(course_list,retries):
+
     global pages_id_list #the list that hold the id of courses for navigating to their web page
     try:
         # main loop of the script
@@ -224,7 +235,7 @@ def main_loop(course_list):
                         #telegram_send.send(messages = ["Difference found in page " + page.name])
                         try:
                             bot.send_message(text = "עמוד הקורס " + page.name + " עודכן,התוספת היא: \n" + diff_str,
-                                            chat_id = group_chat_id)
+                                            chat_id = my_chat_id)
                         except:
                             bot.send_message(text = "Update message threw an exception",
                                             chat_id = my_chat_id)
@@ -234,7 +245,7 @@ def main_loop(course_list):
                                                                                                             diff_str):
                         try:
                             bot.send_message(text = "עמוד הקורס " + page.name + " עודכן והעדכון מכיל את המילה תרגיל,התוספת היא: \n" + diff_str,
-                                            chat_id = group_chat_id)
+                                            chat_id = my_chat_id)
                         except:
                             bot.send_message(text = "Update message threw an exception",
                                             chat_id = my_chat_id)
@@ -252,6 +263,7 @@ def main_loop(course_list):
             # sleep for the required number of minutes
             # check if it's night time and sleep for longer
             print("Iteration complete,sleeping")
+            retries = 0 # we finished the loop succssefully, return to base windows size
             if check_timerange():
                 time.sleep(60 * 40)
             else:
@@ -263,9 +275,10 @@ def main_loop(course_list):
 # loads the json file containing the data, and if needed fetches it from the webpages
 def main():
     global retries
+    global sleep_retries_base
     print("Starting main function")
     global pages_id_list
-    pages_id_list = ["69089","70232","69037","69059","69061","69278"]  # list of page ID's for the courses
+    pages_id_list = ["74661","76014","76007","76883","76024","77197","77191","76035"]  # list of page ID's for the courses
     global restarted_flag
     # differentiate between a start of the script and restart
     if not restarted_flag:
@@ -274,9 +287,11 @@ def main():
     else:
         # flood control
         if retries>5:
+            print("5 consequitive retries, exiting.")
             exit(-1)
         retries+=1
         bot.send_message(text = "Script RESTARTED",chat_id = my_chat_id)
+        sleep(60 * sleep_retries_base * retries) # sleep for time depending on the number of retries - sliding window
         
     print("Trying to load file...",flush = True)
     # try to load data from a json file
@@ -320,12 +335,14 @@ def main():
         f.close()
         time.sleep(60 * sleep_time_min)
     # finished building the data, run the main loop
-    main_loop(course_list)
+    main_loop(course_list,retries)
 
 bot = telegram.Bot(token = TOKEN)
 my_chat_id = '715815893'
 group_chat_id = '-1001625759648'
 atexit.register(exit_handler)
+signal.signal(signal.SIGINT, exit_handler)
+signal.signal(signal.SIGTERM, exit_handler)
 CHROME_PATH = '/usr/lib/chromium-browser/chromium-browser'  #path to chrome app
 CHROMEDRIVER_PATH = '/usr/bin/chromedriver'  #path to chrome driver
 WINDOW_SIZE = "1920,1080"
@@ -337,10 +354,15 @@ chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('user-agent=Mozilla/5.0 (X11; CrOS armv7l 13597.84.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.106 Safari/537.36')
 try:
     driver = webdriver.Chrome(options = chrome_options)  # generate the driver.
+    #driver = webdriver.Chrome(service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),options = chrome_options)
+    #driver = webdriver.Chrome(options=chrome_options,service=Service(service=Service(ChromeDriverManager()).install()))
+    
     launched = True
-except:
+except Exception as e:
     print("Failed to generate driver")
-driver.implicitly_wait(5)
+    print(e)
+    exit(-1)
+#driver.implicitly_wait(5)
 ob = Screenshot_Clipping.Screenshot()
 
 
