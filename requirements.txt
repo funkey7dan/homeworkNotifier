@@ -1,0 +1,8 @@
+beautifulsoup4==4.11.1
+login==0.0.6
+Pillow==9.4.0
+requests==2.25.1
+Screenshot==1.0.0
+selenium==4.7.2
+telegram==0.0.1
+telegram_send==0.34
